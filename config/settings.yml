@@ -1,0 +1,703 @@
+instances:
+  power_corner:
+    base_url: 'https://api.powercorner.com/messages/ussd/at-uganda'
+    api_key: '0WaMKXlU224RPx31m748ECFGVcMys5BlC8LMGRprCRc'
+    template_method: 'configured'
+    actions:
+      'balance':
+        async: true
+  mysol_bj:
+    template_method: 'configured'
+  powercorner_bj:
+    base_url: 'https://wt38kvg0di.execute-api.eu-west-1.amazonaws.com/qa/ussd/moov-benin'
+    api_key: 'HArHOCwOOg7xHuiTZFHzb1DBQKMaQlsr7EvJDZ0R'
+    template_method: 'configured'
+    actions:
+      'balance':
+        async: true
+  #stub instance for tesing
+  testinstance:
+    base_url: 'https://localhost:8090/ussd-notify'
+    api_key: 'sadfsadfaejfnkafenf'
+    template_method: 'forward'
+  # MoMo for direct payments
+  momoep:
+    base_url: 'http://10.1.27.68/ussd'
+    api_key: '24542f8158eaff92e22355125248a9c42eb9d0953c4241af'
+    actions:
+      'validate':
+        requires:
+          - 'reference'
+        returns:
+          - 'customer_name'
+      'payment':
+        requires:
+          - 'reference'
+          - 'payment_amount'
+  # FenixDB
+  train_fenixdb: 
+    base_url: 'https://train.fenixdb.com/support/ussd/mese/test/'
+    api_key: 'GJcWDsJm95jWXmf7XvhdekHESBuyCDYZuOB98oE8uas'
+    template_method: 'forward'
+
+  fenixdb: 
+  # TODO: change to private
+    base_url: 'https://fenixdb.com/support/ussd/mese/test/'
+    api_key: 'exs2gL3JV9M9XymMXvBwFm7mZf0xbzwy4io7z3ngHfs'
+    template_method: 'forward'
+
+  uganda: 
+  # TODO: change to private
+    base_url: 'https://uganda.plugintheworld.com/ussd_api/step'
+    api_key: '37234cee6caaf37d53a999ff22049552471de9848c957cfa94e046d8d538bdd2'
+    template_method: 'forward'
+
+  admin_preview:
+    base_url: 'https://preview-02.plugintheworld.com/ussd_api/step'
+    api_key: '37234cee6caaf37d53a999ff22049552471de9848c957cfa94e046d8d538bdd2'
+    template_method: 'forward'
+
+  # echo for production testing if we don't want to use a staging
+  teststub:
+    template_method: 'configured'
+
+##################################################################################3
+providers:
+  africastalking:
+    routing:
+      '+256787737792': 'admin_preview'
+      '+256758972201': 'admin_preview'
+      '*284*26#': 'power_corner' #production
+      '*384*26241#': 'power_corner' #testing
+      '*284*6#':
+        - 'fenixdb'
+        - 'uganda'
+  bj_moov:
+    details:
+      network_code: 61602
+    routing:
+      '345': 'powercorner_bj'
+  ug_mtn:
+    details:
+      network_code: 64410
+    routing:
+      '165*62':
+        - 'fenixdb'
+        - 'uganda'
+      'teststub': 'teststub'
+  zm_mtn:
+    details:
+      network_code: 64502
+    routing:
+      '500': 'fenixdb'
+      'teststub': 'teststub'
+      'fenixdb': 'train_fenixdb'
+
+
+##################################################################################3
+pages:
+  shared:
+    # if instance doesn't have an error message configured, use this one
+    error:
+      template: 'An error has occured'
+
+  powercorner_bj:
+    generic_error:
+      template: "Erreur lors du traitement de votre demande de paiement"
+      final: true
+
+    payment_confirmation:
+      template: "Votre demande de paiement a bien ete recue"
+      final: true
+
+    customer_invalid:
+      template: "Compte introuvable"
+      final: true
+
+    start_page:
+      template: "Veuillez choisir pour quel service vous desirez payer:\n1.Energie\n2.Abonnement\n3.Commande/Remboursement"
+      session_variables:
+        payment_method:
+          '1': 'energy'
+          '2': 'subscription'
+          '3': 'order'
+        provider_key:
+          '*': 'bj_moov_api'
+        business_account:
+          '*': 'power_corner'
+      next_pages:
+        '1': 'pay_for_energy'
+        '2': 'pay_for_subscription'
+        '3': 'pay_for_order'
+
+##################################################################################3
+    pay_for_energy:
+      template: 'Veuillez indiquer votre numero de client'
+      session_variable: 'reference'
+      next_pages:
+        '*':
+          instance: momoep
+          action: 'validate'
+          next_pages:
+            key: 'momoep_validate_status'
+            'success': 'enter_energy_amount'
+            'invalid': 'customer_invalid'
+            '*': 'generic_error'
+
+    enter_energy_amount:
+      template: "Veuillez saisir le montant a recharger en energie"
+      session_variable: 'amount'
+      next_pages:
+        '*': 'energy_confirmation'
+
+    energy_confirmation:
+      template: "Vous souhaitez recharger <%= amount %> en energie sur le compteur <%= reference %>.\n1. Confirmer\n2. Annuler"
+      next_pages:
+        '2': 'payment_request_cancelled'
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+##################################################################################3
+    pay_for_order:
+      template: 'Veuillez indiquer votre numero de client'
+      session_variable: 'reference'
+      next_pages:
+        '*':
+          instance: momoep
+          action: 'validate'
+          next_pages:
+            key: 'momoep_validate_status'
+            'success': 'enter_order_amount'
+            'invalid': 'customer_invalid'
+            '*': 'generic_error'
+
+    enter_order_amount:
+      template: "Veuillez saisir le montant de votre commande / remboursement"
+      session_variable: 'amount'
+      next_pages:
+        '*': 'order_confirmation'
+
+    order_confirmation:
+      template: "Vous souhaitez payer <%= amount %> pour une commande ou un remboursement sur le compteur <%= reference %>. \n1. Confirmer\n2. Annuler"
+      next_pages:
+        '2': 'payment_request_cancelled'
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+##################################################################################3
+    pay_for_subscription:
+      template: 'Veuillez indiquer votre numero de client'
+      session_variable: 'reference'
+      next_pages:
+        '*':
+          instance: momoep
+          action: 'validate'
+          next_pages:
+            key: 'momoep_validate_status'
+            'success': 'enter_subscription_amount'
+            'invalid': 'customer_invalid'
+            '*': 'generic_error'
+
+    enter_subscription_amount:
+      template: "Quel abonnement desirez vous?\n1. Abonnement Premium (500)\n2. Abonnement Platinium (5000)"
+      session_variables: 
+        amount:
+          '1': 500
+          '2': 5000
+        subscription_name:
+          '1': 'Premium'
+          '2': 'Platinium'
+      next_pages:
+        '1': 'subscription_confirmation'
+        '2': 'subscription_confirmation'
+
+    subscription_confirmation:
+      template: "Vous souhaitez souscrire a l'abonnement <%= subscription_name %> pour <%= amount %> sur le compteur <%= reference %>.\n1. Confirmer\n2. Annuler"
+      next_pages:
+        '2': 'payment_request_cancelled'
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+##################################################################################3
+  power_corner:
+    start_page:
+      template: "Nice to see you again! Please choose what you want to do:\n1.Pay for Energy\n2.Pay for Order\n3.Pay for Fish drying\n4.Pay for Water\n5.Pay for Ice\n6.Balance Request"
+      session_variables:
+        payment_method:
+          '1': 'energy'
+          '2': 'order'
+          '3': 'fish'
+          '4': 'water'
+          '5': 'ice'
+        provider_key:
+          '*': 'ug_africastalking'
+        business_account:
+          '*': 'power_corner'
+        client_type:
+          '*': 'normal'
+      next_pages:
+        '1': 'pay_for_energy'
+        '2': 'pay_for_order'
+        '3': 'pay_for_fish_drying'
+        '4': 'pay_for_water'
+        '5': 'pay_for_ice'
+        '6': 'balance_request'
+
+##################################################################################3
+    pay_for_energy:
+      template: 'Please enter your customer ID'
+      session_variable: 'reference'
+      next_pages:
+        '*':
+          instance: momoep
+          action: 'validate'
+          next_pages:
+            key: 'momoep_validate_status'
+            'success': 'enter_energy_amount'
+            'invalid': 'customer_invalid'
+            '*': 'generic_error'
+
+    enter_energy_amount:
+      template: "Hello <%= reference %>\n\nPlease enter the amount you want to charge for energy"
+      session_variable: 'payment_amount'
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? payment_amount %>"
+          next_pages:
+            key: 'validation_result'
+            'false': 'amount_invalid'
+            'true': 'energy_confirmation'
+            '*': 'energy_confirmation'
+
+    energy_confirmation:
+      template: " You want to pay <%= payment_amount.to_i.to_s(:delimited) %> UGX for energy on customer N°<%= reference %>\n1. Confirm\n2. Cancel"
+      next_pages:
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+        '2': 'payment_request_cancelled'
+##################################################################################3
+    pay_for_order:
+      template: 'Please enter your customer ID'
+      session_variable: 'reference'
+      next_pages:
+        '*':
+          instance: momoep
+          action: 'validate'
+          next_pages:
+            key: 'momoep_validate_status'
+            'success': 'enter_order_amount'
+            'invalid': 'customer_invalid'
+            '*': 'generic_error'
+
+    enter_order_amount:
+      template: "Hello <%= reference %>\n\nPlease enter the amount you want to pay on the order account\nFor activation fee enter 25,000 UGX"
+      session_variable: 'payment_amount'
+      next_pages:
+        '*': 'order_confirmation'
+
+    order_confirmation:
+      template: " You want to pay <%= payment_amount.to_i.to_s(:delimited) %> UGX for order on customer N°<%= reference %>\n1. Confirm\n2. Cancel"
+      next_pages:
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+        '2': 'payment_request_cancelled'
+
+##################################################################################3
+    pay_for_fish_drying:
+      template: "Please enter your customer ID"
+      session_variable: 'reference'
+      next_pages:
+        '*':
+          instance: momoep
+          action: 'validate'
+          next_pages:
+            key: 'momoep_validate_status'
+            'success': 'enter_fish_method'
+            'invalid': 'customer_invalid'
+            '*': 'generic_error'
+
+    enter_fish_method:
+      template: "Hello <%= reference %>\n\nPlease pick how you want to pay for fish-drying:\n\n1. basin = 2,000\n2. bucket = 94,000\n3. by kg = 400"
+      session_variables: 
+        payment_method_conversion:
+          '1': 2000
+          '2': 94000
+          '3': 400
+        fish_method:
+          '1': 'basins'
+          '2': 'buckets'
+          '3': 'kgs'
+      next_pages:
+        '1': 'fish_drying_amount_basins'
+        '2': 'fish_drying_amount_buckets'
+        '3': 'fish_drying_amount_kgs'
+
+    fish_drying_amount_basins:
+      template: "What number of basins do you want?\nReminder\n1 basin = 2,000"
+      session_variable: 'payment_quantity'
+      session_variables:
+        'payment_amount':
+          '*': "<%= payment_method_conversion.to_i * payment_quantity.to_i %>"
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? payment_quantity %>"
+          next_pages:
+            key: 'validation_result'
+            'false': 'amount_invalid'
+            'true': 'fish_drying_confirmation'
+            '*': 'fish_drying_confirmation'
+
+    fish_drying_amount_buckets:
+      template: "What number of buckets do you want?\nReminder\n1 bucket = 94,000"
+      session_variable: 'payment_quantity'
+      session_variables:
+        'payment_amount':
+          '*': "<%= payment_method_conversion.to_i * payment_quantity.to_i %>"
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? payment_quantity %>"
+          next_pages:
+            key: 'validation_result'
+            'false': 'amount_invalid'
+            'true': 'fish_drying_confirmation'
+            '*': 'fish_drying_confirmation'
+
+    fish_drying_amount_kgs:
+      template: "How many kgs do you want?\n\nReminder\n1 kg = 400"
+      session_variable: 'payment_quantity'
+      session_variables:
+        'payment_amount':
+          '*': "<%= payment_method_conversion.to_i * payment_quantity.to_i %>"
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? payment_quantity %>"
+          next_pages:
+            key: 'validation_result'
+            'false': 'amount_invalid'
+            'true': 'fish_drying_confirmation'
+            '*': 'fish_drying_confirmation'
+
+    fish_drying_confirmation:
+      template: " You want to buy <%= payment_quantity %> <%= fish_method %> for fish-drying for <%= payment_amount.to_i.to_s(:delimited) %> UGX on customer N°<%= reference %>.\n\n1. Confirm\n2. Cancel"
+      next_pages:
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+        '2': 'payment_request_cancelled'
+##################################################################################3
+    pay_for_ice:
+      template: "Please enter your customer ID"
+      session_variable: 'reference'
+      next_pages:
+        '*':
+          instance: momoep
+          action: 'validate'
+          next_pages:
+            key: 'momoep_validate_status'
+            'success': 'enter_ice_method'
+            'invalid': 'customer_invalid'
+            '*': 'generic_error'
+
+    enter_ice_method:
+      template: "Hello <%= reference %>\nPlease pick how you want to pay for ice:\n1. sack (80kg) = 17700\n2. box (250kg) = 53100\n3. by kg = 222"
+      session_variables: 
+        payment_method_conversion:
+          '1': 17700
+          '2': 53100
+          '3': 222
+        ice_method:
+          '1': 'sacks'
+          '2': 'boxes'
+          '3': 'kgs'
+      next_pages:
+        '1': 'ice_amount_sacks'
+        '2': 'ice_amount_boxes'
+        '3': 'ice_amount_kgs'
+
+    ice_amount_sacks:
+      template: "What number of sacks do you want?\nReminder\n1 sack (80kg) = 17,700"
+      session_variable: 'payment_quantity'
+      session_variables:
+        'payment_amount':
+          '*': "<%= payment_method_conversion.to_i * payment_quantity.to_i %>"
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? payment_quantity %>"
+          next_pages:
+            key: 'validation_result'
+            'false': 'amount_invalid'
+            'true': 'ice_confirmation'
+            '*': 'ice_confirmation'
+
+    ice_amount_boxes:
+      template: "What number of boxes do you want?\nReminder\n1 box (250kg) = 53,100"
+      session_variable: 'payment_quantity'
+      session_variables:
+        'payment_amount':
+          '*': "<%= payment_method_conversion.to_i * payment_quantity.to_i %>"
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? payment_quantity %>"
+          next_pages:
+            key: 'validation_result'
+            'false': 'amount_invalid'
+            'true': 'ice_confirmation'
+            '*': 'ice_confirmation'
+
+    ice_amount_kgs:
+      template: "How many kgs do you want?\n\nReminder\n1 kg = 222"
+      session_variable: 'payment_quantity'
+      session_variables:
+        'payment_amount':
+          '*': "<%= payment_method_conversion.to_i * payment_quantity.to_i %>"
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? payment_quantity %>"
+          next_pages:
+            key: 'validation_result'
+            'false': 'amount_invalid'
+            'true': 'ice_confirmation'
+            '*': 'ice_confirmation'
+
+    ice_confirmation:
+      template: " You want to buy <%= payment_quantity %> <%= ice_method %> of ice for <%= payment_amount.to_i.to_s(:delimited) %> UGX on customer N°<%= reference %>.\n\n1. Confirm\n2. Cancel"
+      next_pages:
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+        '2': 'payment_request_cancelled'
+##################################################################################3
+    pay_for_water:
+      template: "Please enter your customer ID"
+      session_variable: 'reference'
+      next_pages:
+        '*':
+          instance: momoep
+          action: 'validate'
+          next_pages:
+            key: 'momoep_validate_status'
+            'success': "enter_water_<%= client_type == 'retailer' ? 'retailer' : 'method'%>"
+            'invalid': 'customer_invalid'
+            '*': 'generic_error'
+
+    enter_water_method:
+      template: "Hello <%= reference %>\n\nPlease pick what you need:\n1. 20L refill with deliv. = 6,000\n2. 20L refill at PH = 5,000\n3. New full 20L bottle = 35,000"
+      session_variables: 
+        water_method:
+          '1': 'refill_deliv'
+          '2': 'refill_at_ph'
+          '3': 'new_bottle'
+        payment_method_conversion:
+          '1': 6000
+          '2': 5000
+          '3': 35000
+      next_pages:
+        '1': 'refill_amount'
+        '2': 'refill_amount'
+        '3': 'new_bottle_amount'
+
+    enter_water_retailer:
+      template: "Hello <%= reference %>\n\nPlease pick what you need:\n1. 20L refill = 4,000\n2. New full 20L bottle = 35,000"
+      session_variables: 
+        water_method:
+          '1': 'refill'
+          '2': 'new_bottle'
+        payment_method_conversion:
+          '1': 4000
+          '2': 35000
+      next_pages:
+        '1': 'refill_amount'
+        '2': 'new_bottle_amount'
+
+    refill_amount:
+      template: "How many do you want to order? \nReminder\n20L refill with deliv. = <%= payment_method_conversion.to_i.to_s(:delimited) %>"
+      session_variable: 'payment_quantity'
+      session_variables:
+        'payment_amount':
+          '*': "<%= payment_method_conversion.to_i * payment_quantity.to_i %>"
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? payment_quantity %>"
+          next_pages:
+            key: 'validation_result'
+            'false': 'amount_invalid'
+            'true': 'refill_confirmation'
+            '*': 'refill_confirmation'
+
+    new_bottle_amount:
+      template: "How many do you want to order? \nReminder\n20L bottle = <%= payment_method_conversion.to_i.to_s(:delimited) %>"
+      session_variable: 'payment_quantity'
+      session_variables:
+        'payment_amount':
+          '*': "<%= payment_method_conversion.to_i * payment_quantity.to_i %>"
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? payment_quantity %>"
+          next_pages:
+            key: 'validation_result'
+            'false': 'amount_invalid'
+            'true': 'new_bottle_confirmation'
+            '*': 'new_bottle_confirmation'
+
+    new_bottle_confirmation:
+      template: "You want to buy <%= payment_quantity %> new 20L bottle(s) for <%= payment_amount.to_i.to_s(:delimited) %> UGX on customer <%= reference %>\n\n1. Confirm\n2. Cancel"
+      next_pages:
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+        '2': 'payment_request_cancelled'
+
+    refill_confirmation:
+      template: "You want to buy <%= payment_quantity %> 20L refill(s) for <%= payment_amount.to_i.to_s(:delimited) %> UGX on customer <%= reference %>\n\n1. Confirm\n2. Cancel"
+      next_pages:
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+        '2': 'payment_request_cancelled'
+##################################################################################3
+    balance_request:
+      template: "Please enter your customer ID"
+      session_variable: 'reference'
+      next_pages:
+        '*':
+          instance: power_corner
+          action: 'balance'
+          next_pages:
+            '*': 'balance_request_sent'
+
+    balance_request_sent:
+      template: "We will send an SMS with your balance in a few"
+      final: true
+
+##################################################################################3
+    customer_invalid:
+      template: 'The customer ID <%= reference %> is not valid, please try again or contact our support'
+      # remove once previous works
+      final: true
+      next_pages:
+        '*': '#previous'
+
+    amount_invalid:
+      template: 'The quantity is not valid, please try again or contact our support'
+      final: true
+
+    payment_confirmation:
+      template: 'A payment request for <%= payment_amount.to_i.to_s(:delimited) %> UGX for <%= reference %> has been sent. Please wait for confirmation'
+      final: true
+       
+    payment_request_cancelled:
+      template: 'Payment request cancelled'
+      final: true
+
+    invalid_input:
+      template: 'Invalid choice'
+      # remove once previous works
+      final: true
+      next_pages:
+        '*': '#previous'
+##################################################################################3
+  mysol_bj:
+    start_page:
+      template: "Entrez votre numero de compte"
+      session_variable: 'reference'
+      session_variables:
+        provider_key:
+          '*': 'bj_moov_api'
+        business_account:
+          '*': 'bj_mysol'
+      next_pages:
+        '*':
+          instance: momoep
+          action: 'validate'
+          next_pages:
+            key: 'momoep_validate_status'
+            'success': 'enter_amount'
+            'invalid': 'customer_invalid'
+            '*': 'generic_error'
+    enter_amount:
+      template: "Entrez le montant"
+      session_variable: 'amount'
+      next_pages:
+        '*':
+          validation: "<%= /\\A\\d+\\z/.match? amount %>"
+          next_pages:
+            key: 'validation_result'
+            'true': 'confirm_payment'
+            'false': 'amount_invalid'
+            '*': 'generic_error'
+    confirm_payment:
+      template: "Confirmer le paiement de <%= amount %> sur le compte de <%= customer_name %>?\n1. Confirmez\n2. Annuler"
+      next_pages:
+        '2': 'payment_request_cancelled'
+        '1': 
+          instance: momoep
+          action: 'payment'
+          next_pages:
+            key: 'momoep_payment_status'
+            'success': 'payment_confirmation'
+            '*': 'generic_error'
+    customer_invalid:
+      template: "Compte introuvable"
+      final: true
+    amount_invalid:
+      template: "Amount introuvable"
+      final: true
+    payment_confirmation:
+      template: "Votre demande de paiement a bien ete recue"
+      final: true
+    payment_request_cancelled:
+      template: "Paiement non traite."
+      final: true
+
+##################################################################################3
+  teststub:
+    start_page:
+      template: 'Pick 1 or 2'
+      next_pages:
+        '1': 'test1'
+        '2': 'test2'
+    test1:
+       template: 'If you picked 1, tests are passing! Thanks.'
+       final: true
+    test2:
+       template: 'If you picked 2, tests are passing! Thanks.'
+       final: true
+  
